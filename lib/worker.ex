@@ -1,6 +1,7 @@
 defmodule Metex.Worker do
   def temperature_of(location) do
-    result = url_for(location)
+    result = location
+    |> url_for
     |> HTTPoison.get
     |> parse_response
 
@@ -23,7 +24,7 @@ defmodule Metex.Worker do
     |> compute_temperature
   end
 
-  # defp parse_response(_), do: :error
+  defp parse_response(_), do: :error
 
   defp compute_temperature(json) do
     try do
