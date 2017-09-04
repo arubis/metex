@@ -1,4 +1,14 @@
 defmodule Metex.Worker do
+  def loop do
+    receive do
+      {sender_pid, location} ->
+        send(sender_pid, {:ok, temperature_of(location)})
+      _ ->
+        send(sender_pid, "Unknown message")
+    end
+    loop()
+  end
+
   def temperature_of(location) do
     result = location
     |> url_for
