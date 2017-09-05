@@ -1,26 +1,74 @@
 defmodule Metex.Worker do
-  def loop do
-    receive do
-      {sender_pid, location} ->
-        send(sender_pid, {:ok, temperature_of(location)})
-      _ ->
-        send(sender_pid, "Unknown message")
-    end
-    loop()
+  use GenServer
+
+  @name MW
+
+  ## Client API
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, :ok, opts ++ [name: MW])
   end
 
-  def temperature_of(location) do
-    result = location
-    |> url_for
-    |> HTTPoison.get
-    |> parse_response
+  def get_temperature(location) do
+    GenServer.call(@name, {:location, location})
+  end
 
-    case result do
+  def get_stats do
+    GenServer.call(@name, :get_stats)
+  end
+
+  def reset_stats do
+    GenServer.cast(@name, :reset_stats)
+  end
+
+  def stop do
+    GenServer.cast(@name, :stop)
+  end
+
+  ## Server callbacks
+
+  def init(:ok) do
+    {:ok, %{}}
+  end
+
+  def handle_call({:location, location}, _from, stats) do
+    case temperature_of(location) do
       {:ok, temp} ->
-        "#{location}: #{temp}°C"
-      :error ->
-        "#{location} not found"
+        new_stats = update_stats(stats, location)
+        {:reply, "#{temp}°C", new_stats}
+
+      _ ->
+        {:reply, :error, :stats}
     end
+  end
+
+  def handle_call(:get_stats, _from, stats) do
+    {:reply, stats, stats}
+  end
+
+  def handle_cast(:reset_stats, _stats) do
+    {:noreply, %{}}
+  end
+
+  def handle_cast(:stop, state) do
+    {:stop, :normal, state}
+  end
+
+  def terminate(reason, stats) do
+    IO.puts "server terminated due to #{inspect reason}"
+    inspect stats
+    :ok
+  end
+
+  def handle_info(msg, stats) do
+    IO.puts "received #{inspect msg}"
+    {:noreply, stats}
+  end
+
+  ## Helper functions
+
+  def temperature_of(location) do
+    location |> url_for |> HTTPoison.get |> parse_response
   end
 
   defp url_for(location) do
@@ -28,10 +76,8 @@ defmodule Metex.Worker do
     "http://api.openweathermap.org/data/2.5/weather?q=#{location}&appid=#{apikey()}"
   end
 
-  defp parse_response({:ok, %HTTPoison.Response{body: body}}) do
-    body
-    |> JSON.decode!
-    |> compute_temperature
+  defp parse_response({:ok, %HTTPoison.Response{body: body, status_code: 200}}) do
+    body |> JSON.decode! |> compute_temperature
   end
 
   defp parse_response(_), do: :error
@@ -46,4 +92,15 @@ defmodule Metex.Worker do
   end
 
   defp apikey, do: "f087bb7b03be3ea9d1c57d97989572d7"
+
+  defp update_stats(old_stats, location) do
+    case Map.has_key?(old_stats, location) do
+      true ->
+        Map.update!(old_stats, location, &(&1 + 1))
+      false ->
+        Map.put_new(old_stats, location, 1)
+    end
+  end
+
 end
+
